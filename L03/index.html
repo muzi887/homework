@@ -3,24 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>星际求生：智械危机</title>
+  <title>星际求生：霓虹危机</title>
   <script src="phaser.js"></script>
   <style>
-    body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; }
+    /* 页面居中，背景纯黑，突出Canvas的色彩 */
+    body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
   </style>
 </head>
 <body>
   <script>
-    // --- 全局变量 ---
     var player;
     var platforms;
     var crystals;
-    var enemies; // 敌人组
+    var enemies; 
     var cursors;
     
     var score = 0;
     var scoreText;
-    var hp = 3;  // 生命值
+    var hp = 3;
     var hpText;
     var gameOver = false;
 
@@ -31,7 +31,7 @@
       physics: {
         default: "arcade",
         arcade: {
-          gravity: { y: 300 },
+          gravity: { y: 600 }, // 增加重力，让手感更沉稳，不飘
           debug: false,
         },
       },
@@ -45,188 +45,198 @@
     var game = new Phaser.Game(config);
 
     function preload() {
-      // 这里我们依然用代码生成素材，方便你直接运行
-      // 实际项目中你可以替换为 load.image
+      // 依然使用代码绘图
     }
 
     function create() {
-      // --- 1. 生成素材 ---
-      createGraphics(this);
+      // --- 1. 恢复原本好看的霓虹素材 ---
+      createNeonAssets(this);
 
       // --- 2. 背景与UI ---
       this.add.image(500, 300, 'bg').setScale(2);
       
-      // UI 文本
-      scoreText = this.add.text(16, 16, 'SCORE: 0', { fontSize: '32px', fill: '#00ff00', fontFamily: 'Courier' });
-      hpText = this.add.text(16, 50, 'HP: 3', { fontSize: '32px', fill: '#ff0000', fontFamily: 'Courier' });
+      // 使用青色荧光字体
+      scoreText = this.add.text(20, 20, 'ENERGY: 0', { fontSize: '28px', fill: '#00ffff', fontFamily: 'Arial', stroke: '#003333', strokeThickness: 4 });
+      hpText = this.add.text(20, 60, 'SHIELD: 3', { fontSize: '28px', fill: '#ff0055', fontFamily: 'Arial', stroke: '#330000', strokeThickness: 4 });
 
       // --- 3. 物理平台 ---
       platforms = this.physics.add.staticGroup();
-      platforms.create(500, 580, 'ground').setScale(20, 1).refreshBody(); // 地面
-      platforms.create(200, 400, 'ground');
-      platforms.create(800, 400, 'ground');
-      platforms.create(500, 250, 'ground');
+      // 地面 (加宽一点防止边缘掉落)
+      platforms.create(500, 590, 'platform').setScale(22, 1).refreshBody();
+      // 空中浮板
+      platforms.create(200, 420, 'platform').setScale(4, 1).refreshBody();
+      platforms.create(800, 420, 'platform').setScale(4, 1).refreshBody();
+      platforms.create(500, 250, 'platform').setScale(3, 1).refreshBody();
 
       // --- 4. 玩家设置 ---
       player = this.physics.add.sprite(100, 450, 'player');
-      player.setBounce(0.2);
+      player.setBounce(0.1);
       player.setCollideWorldBounds(true);
 
       // --- 5. 物品与敌人 ---
       crystals = this.physics.add.group({
         key: 'crystal',
         repeat: 11,
-        setXY: { x: 12, y: 0, stepX: 80 }
+        setXY: { x: 12, y: 0, stepX: 85 }
       });
       
       crystals.children.iterate(function (child) {
         child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
       });
 
-      // 创建敌人组（初始为空）
       enemies = this.physics.add.group();
 
       // --- 6. 碰撞逻辑 ---
       this.physics.add.collider(player, platforms);
       this.physics.add.collider(crystals, platforms);
-      this.physics.add.collider(enemies, platforms); // 敌人也会踩在地上
+      this.physics.add.collider(enemies, platforms); 
 
-      // 交互事件
       this.physics.add.overlap(player, crystals, collectCrystal, null, this);
       this.physics.add.collider(player, enemies, hitEnemy, null, this);
 
-      // 输入控制
       cursors = this.input.keyboard.createCursorKeys();
     }
 
     function update() {
-      if (gameOver) {
-        return; // 游戏结束停止所有逻辑
-      }
+      if (gameOver) { return; }
 
       // --- 玩家移动 ---
       if (cursors.left.isDown) {
-        player.setVelocityX(-200);
+        player.setVelocityX(-240);
+        player.setFlipX(true); // 左右翻转贴图
       } else if (cursors.right.isDown) {
-        player.setVelocityX(200);
+        player.setVelocityX(240);
+        player.setFlipX(false);
       } else {
         player.setVelocityX(0);
       }
 
-      if (cursors.up.isDown && player.body.touching.down) {
-        player.setVelocityY(-350);
+      // --- 修复后的跳跃逻辑 ---
+      // blocked.down 检测是否踩在世界底部
+      // touching.down 检测是否踩在物体（平台）上
+      if (cursors.up.isDown && (player.body.touching.down || player.body.blocked.down)) {
+        player.setVelocityY(-500); // 跳跃力度配合新重力调整
       }
 
-      // --- 核心复杂功能：简单的 AI 追踪算法 ---
+      // --- AI 追踪逻辑 (作业亮点) ---
       enemies.children.iterate(function(enemy) {
-        // AI 逻辑：如果玩家在敌人的左边，敌人就向左跑；反之亦然
-        // 增加一个检测范围，比如距离 400 像素内才开始追
-        if (Math.abs(player.x - enemy.x) < 400) {
+        // 简单的视觉范围判断
+        if (Math.abs(player.x - enemy.x) < 500) {
+            // 简单的追踪算法：比较 x 坐标
             if (player.x < enemy.x) {
-                enemy.setVelocityX(-100 - (score * 0.5)); // 分数越高，敌人越快
+                enemy.setVelocityX(-120 - (score * 0.2)); // 基础速度 + 难度递增
             } else {
-                enemy.setVelocityX(100 + (score * 0.5));
+                enemy.setVelocityX(120 + (score * 0.2));
             }
         } else {
-            enemy.setVelocityX(0); // 太远了就发呆
+            // 如果离得远，就随机巡逻
+            if (Math.random() > 0.98) {
+               enemy.setVelocityX(Phaser.Math.Between(-50, 50));
+            }
         }
       });
     }
 
-    // --- 业务逻辑函数 ---
-
     function collectCrystal(player, crystal) {
       crystal.disableBody(true, true);
       score += 10;
-      scoreText.setText('SCORE: ' + score);
+      scoreText.setText('ENERGY: ' + score);
 
-      // 刷新机制：收集完一波后
       if (crystals.countActive(true) === 0) {
         crystals.children.iterate(function (child) {
           child.enableBody(true, child.x, 0, true, true);
+          child.setVelocityX(Phaser.Math.Between(-50, 50));
         });
 
-        // **新功能**：每一波生成一个追踪机器人
-        // 在远离玩家的地方生成
+        // 每一波生成一个红色追踪者
         var x = (player.x < 500) ? Phaser.Math.Between(600, 900) : Phaser.Math.Between(100, 400);
         var enemy = enemies.create(x, 16, 'enemy');
-        enemy.setBounce(0.5);
+        enemy.setBounce(0.8); // 敌人弹性高一点，更难缠
         enemy.setCollideWorldBounds(true);
         enemy.setVelocity(Phaser.Math.Between(-100, 100), 20);
       }
     }
 
     function hitEnemy(player, enemy) {
-      // 击退效果
-      if (player.x < enemy.x) {
-          player.x -= 30;
-      } else {
-          player.x += 30;
+      if (player.body.touching.down) {
+          // 如果玩家是从上面踩到了敌人（类似于马里奥）
+          // 可选：踩死敌人的逻辑，目前先保留受伤逻辑
       }
-      player.setVelocityY(-200);
 
-      // 暂时禁用这个敌人的碰撞，防止瞬间扣光血（无敌帧的简化版）
+      // 击退
+      if (player.x < enemy.x) player.x -= 40;
+      else player.x += 40;
+      player.setVelocityY(-250);
+
       enemy.disableBody(true, true);
-      // 1秒后敌人复活/重新出现
+      // 敌人稍微休息一下再出来（避免连续扣血）
       this.time.delayedCall(1000, function() {
          enemy.enableBody(true, enemy.x, 0, true, true);
       }, [], this);
 
-      // 扣血逻辑
       hp -= 1;
-      hpText.setText('HP: ' + hp);
-
-      // 变色示警
-      player.setTint(0xff0000);
+      hpText.setText('SHIELD: ' + hp);
+      
+      player.setTint(0xff0000); // 变红
       this.time.delayedCall(200, function() {
           player.clearTint();
       });
 
       if (hp <= 0) {
-        this.physics.pause(); // 暂停物理引擎
+        this.physics.pause();
         player.setTint(0xff0000);
         gameOver = true;
-        this.add.text(300, 250, 'GAME OVER', { fontSize: '64px', fill: '#fff', backgroundColor: '#000' });
-        this.add.text(350, 320, 'Press F5 to Restart', { fontSize: '24px', fill: '#fff' });
+        this.add.text(300, 250, 'SYSTEM FAILURE', { fontSize: '64px', fill: '#ff0055', stroke: '#fff', strokeThickness: 2 });
+        this.add.text(360, 330, 'Refresh to Reboot', { fontSize: '24px', fill: '#fff' });
       }
     }
 
-    // --- 自动绘图工具 (无需手动找素材) ---
-    function createGraphics(scene) {
+    // --- 霓虹风格绘图函数 ---
+    function createNeonAssets(scene) {
       var g = scene.make.graphics({x:0, y:0, add:false});
 
-      // 背景
-      g.fillStyle(0x000033, 1);
+      // 1. 背景 (深蓝)
+      g.fillStyle(0x050520, 1);
       g.fillRect(0,0,32,32);
       g.generateTexture('bg', 32, 32);
 
-      // 地面
+      // 2. 平台 (科技灰 + 青色光边)
       g.clear();
-      g.fillStyle(0x444444, 1);
-      g.fillRect(0,0,32,32);
-      g.lineStyle(2, 0x00ff00, 1); // 绿色边框
-      g.strokeRect(0,0,32,32);
-      g.generateTexture('ground', 32, 32);
+      g.fillStyle(0x222233, 1);
+      g.fillRect(0,0,64,32);
+      g.lineStyle(2, 0x00ffff, 1); // 青色边框
+      g.strokeRect(0,0,64,32);
+      // 加一点内部纹理
+      g.lineStyle(1, 0x00ffff, 0.3);
+      g.moveTo(10, 0); g.lineTo(5, 32);
+      g.strokePath();
+      g.generateTexture('platform', 64, 32);
 
-      // 玩家 (白色方块)
+      // 3. 玩家 (白色宇航员 + 黑色面罩)
       g.clear();
       g.fillStyle(0xffffff, 1);
-      g.fillRect(0,0,30,30);
-      g.generateTexture('player', 30, 30);
+      g.fillRoundedRect(0,0,32,32, 4);
+      g.fillStyle(0x111111, 1);
+      g.fillRoundedRect(6,6,20,12, 2); // 面罩
+      g.generateTexture('player', 32, 32);
 
-      // 晶体 (黄色圆形)
+      // 4. 晶体 (六边形能量块 - 青色)
       g.clear();
-      g.fillStyle(0xffff00, 1);
-      g.fillCircle(10,10,10);
-      g.generateTexture('crystal', 20, 20);
+      g.fillStyle(0x00ffff, 0.8);
+      g.fillCircle(12,12,10);
+      g.lineStyle(2, 0xffffff, 1);
+      g.strokeCircle(12,12,10);
+      g.generateTexture('crystal', 24, 24);
 
-      // 敌人 (红色带眼睛)
+      // 5. 敌人 (红色警戒色)
       g.clear();
-      g.fillStyle(0xff0000, 1);
-      g.fillRect(0,0,32,32);
-      g.fillStyle(0x000000, 1);
-      g.fillRect(5, 5, 10, 5); // 左眼
-      g.fillRect(17, 5, 10, 5); // 右眼
+      g.lineStyle(2, 0xff0055, 1); // 红色光圈
+      g.fillStyle(0x330011, 1);
+      g.fillCircle(16,16,14);
+      g.strokeCircle(16,16,14);
+      // 红眼
+      g.fillStyle(0xff0055, 1); 
+      g.fillCircle(16, 16, 6);
       g.generateTexture('enemy', 32, 32);
     }
   </script>
