@@ -3,34 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>星际矿工：晶体冲刺</title>
+  <title>星际求生：智械危机</title>
   <script src="phaser.js"></script>
   <style>
-    body { margin: 0; padding: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; }
   </style>
 </head>
 <body>
   <script>
-    // --- 变量重命名 ---
+    // --- 全局变量 ---
     var player;
-    var cursors;
     var platforms;
-    var crystals; // 原 coins
-    var comets;   // 原 letter (赤红彗星)
+    var crystals;
+    var enemies; // 敌人组
+    var cursors;
     
-    var rareScore = 0; // 原 letterNum
     var score = 0;
     var scoreText;
-    var playerState = "standing";
+    var hp = 3;  // 生命值
+    var hpText;
+    var gameOver = false;
 
     var config = {
       type: Phaser.AUTO,
-      width: 1208,
-      height: 668,
+      width: 1000,
+      height: 600,
       physics: {
         default: "arcade",
         arcade: {
-          gravity: { y: 300 }, // 模拟月球/太空低重力
+          gravity: { y: 300 },
           debug: false,
         },
       },
@@ -44,194 +45,189 @@
     var game = new Phaser.Game(config);
 
     function preload() {
-      // --- 资源加载区 ---
-      // 如果你有真正的图片，请在这里用 this.load.image() 加载
-      // 为了方便演示，我在 create 函数里直接画出了图形
-      
-      // 音效加载（如果你有科幻音效，请取消注释并替换文件名）
-      // this.load.audio("collect_sound", "res/collect.mp3");
-      // this.load.audio("jump_sound", "res/jump.mp3");
-      // this.load.audio("respawn_sound", "res/respawn.mp3");
-      // this.load.audio("powerup_sound", "res/powerup.mp3");
+      // 这里我们依然用代码生成素材，方便你直接运行
+      // 实际项目中你可以替换为 load.image
     }
 
     function create() {
-      // --- 1. 自动生成素材 (代替原来的图片) ---
-      createAssets(this); 
+      // --- 1. 生成素材 ---
+      createGraphics(this);
 
-      // --- 2. 创建背景 ---
-      // 使用深邃的太空蓝
-      this.add.image(604, 334, "bg_texture").setScale(4);
+      // --- 2. 背景与UI ---
+      this.add.image(500, 300, 'bg').setScale(2);
+      
+      // UI 文本
+      scoreText = this.add.text(16, 16, 'SCORE: 0', { fontSize: '32px', fill: '#00ff00', fontFamily: 'Courier' });
+      hpText = this.add.text(16, 50, 'HP: 3', { fontSize: '32px', fill: '#ff0000', fontFamily: 'Courier' });
 
-      // --- 3. 创建平台 ---
+      // --- 3. 物理平台 ---
       platforms = this.physics.add.staticGroup();
-      // 地面
-      platforms.create(604, 660, "ground_texture").setScale(20, 2).refreshBody();
-      // 空中平台 (模拟空间站浮板)
-      platforms.create(200, 500, "ground_texture").setScale(3, 1).refreshBody();
-      platforms.create(900, 450, "ground_texture").setScale(3, 1).refreshBody();
-      platforms.create(500, 300, "ground_texture").setScale(2, 1).refreshBody();
+      platforms.create(500, 580, 'ground').setScale(20, 1).refreshBody(); // 地面
+      platforms.create(200, 400, 'ground');
+      platforms.create(800, 400, 'ground');
+      platforms.create(500, 250, 'ground');
 
-      // --- 4. 创建宇航员 (Player) ---
-      player = this.physics.add.sprite(100, 450, "player_texture");
-      player.setBounce(0.2); // 稍微有点弹性
+      // --- 4. 玩家设置 ---
+      player = this.physics.add.sprite(100, 450, 'player');
+      player.setBounce(0.2);
       player.setCollideWorldBounds(true);
 
-      // --- 5. 键盘控制 ---
-      cursors = this.input.keyboard.createCursorKeys();
-
-      // --- 6. 添加蓝色能量晶体 (原 Coins) ---
+      // --- 5. 物品与敌人 ---
       crystals = this.physics.add.group({
-        key: "crystal_texture",
-        repeat: 9, // 数量增加到10个
-        setXY: { x: 12, y: 0, stepX: 120 },
+        key: 'crystal',
+        repeat: 11,
+        setXY: { x: 12, y: 0, stepX: 80 }
       });
-
+      
       crystals.children.iterate(function (child) {
         child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
-        child.setCollideWorldBounds(true);
-        // 给晶体加一点旋转动画，看起来像在漂浮
-        child.setAngularVelocity(50);
       });
 
-      // --- 7. 碰撞设置 ---
+      // 创建敌人组（初始为空）
+      enemies = this.physics.add.group();
+
+      // --- 6. 碰撞逻辑 ---
       this.physics.add.collider(player, platforms);
       this.physics.add.collider(crystals, platforms);
-      this.physics.add.overlap(player, crystals, collectCrystal, null, this);
+      this.physics.add.collider(enemies, platforms); // 敌人也会踩在地上
 
-      // --- 8. UI 显示 ---
-      // 使用科幻风格的青色文字
-      scoreText = this.add.text(16, 16, 'ENERGY: 0\nRARE MINERALS: 0', { 
-        fontSize: '28px', 
-        fill: '#00ffff', // 青色荧光
-        fontFamily: 'Arial' 
-      });
+      // 交互事件
+      this.physics.add.overlap(player, crystals, collectCrystal, null, this);
+      this.physics.add.collider(player, enemies, hitEnemy, null, this);
+
+      // 输入控制
+      cursors = this.input.keyboard.createCursorKeys();
     }
 
     function update() {
-      // 左右移动逻辑
+      if (gameOver) {
+        return; // 游戏结束停止所有逻辑
+      }
+
+      // --- 玩家移动 ---
       if (cursors.left.isDown) {
-        player.setVelocityX(-260);
-        player.setFlipX(true); // 向左转
+        player.setVelocityX(-200);
       } else if (cursors.right.isDown) {
-        player.setVelocityX(260);
-        player.setFlipX(false); // 向右转
+        player.setVelocityX(200);
       } else {
         player.setVelocityX(0);
       }
 
-      // 跳跃逻辑 (喷气背包)
       if (cursors.up.isDown && player.body.touching.down) {
-        player.setVelocityY(-380); // 跳得更高一点
-        // 这里可以加播放跳跃音效的代码
+        player.setVelocityY(-350);
       }
+
+      // --- 核心复杂功能：简单的 AI 追踪算法 ---
+      enemies.children.iterate(function(enemy) {
+        // AI 逻辑：如果玩家在敌人的左边，敌人就向左跑；反之亦然
+        // 增加一个检测范围，比如距离 400 像素内才开始追
+        if (Math.abs(player.x - enemy.x) < 400) {
+            if (player.x < enemy.x) {
+                enemy.setVelocityX(-100 - (score * 0.5)); // 分数越高，敌人越快
+            } else {
+                enemy.setVelocityX(100 + (score * 0.5));
+            }
+        } else {
+            enemy.setVelocityX(0); // 太远了就发呆
+        }
+      });
     }
 
-    // --- 交互函数 ---
+    // --- 业务逻辑函数 ---
 
-    // 收集蓝色晶体
     function collectCrystal(player, crystal) {
       crystal.disableBody(true, true);
-      
-      // 播放音效 (模拟)
-      // this.sound.play("collect_sound");
+      score += 10;
+      scoreText.setText('SCORE: ' + score);
 
-      score += 10; // 分数膨胀一点更爽
-      updateScore();
-
-      // 刷新机制
+      // 刷新机制：收集完一波后
       if (crystals.countActive(true) === 0) {
-        // this.sound.play("respawn_sound");
         crystals.children.iterate(function (child) {
           child.enableBody(true, child.x, 0, true, true);
-          // 每次刷新给个随机速度，增加难度
-          child.setVelocityX(Phaser.Math.Between(-50, 50));
         });
+
+        // **新功能**：每一波生成一个追踪机器人
+        // 在远离玩家的地方生成
+        var x = (player.x < 500) ? Phaser.Math.Between(600, 900) : Phaser.Math.Between(100, 400);
+        var enemy = enemies.create(x, 16, 'enemy');
+        enemy.setBounce(0.5);
+        enemy.setCollideWorldBounds(true);
+        enemy.setVelocity(Phaser.Math.Between(-100, 100), 20);
       }
+    }
 
-      // 生成赤红彗星 (原 Letter 炸弹)
-      // 设定：每收集 50 分 (5个晶体) 生成一个
-      if (score > 0 && score % 50 === 0) {
-        spawnComet(this);
+    function hitEnemy(player, enemy) {
+      // 击退效果
+      if (player.x < enemy.x) {
+          player.x -= 30;
+      } else {
+          player.x += 30;
+      }
+      player.setVelocityY(-200);
+
+      // 暂时禁用这个敌人的碰撞，防止瞬间扣光血（无敌帧的简化版）
+      enemy.disableBody(true, true);
+      // 1秒后敌人复活/重新出现
+      this.time.delayedCall(1000, function() {
+         enemy.enableBody(true, enemy.x, 0, true, true);
+      }, [], this);
+
+      // 扣血逻辑
+      hp -= 1;
+      hpText.setText('HP: ' + hp);
+
+      // 变色示警
+      player.setTint(0xff0000);
+      this.time.delayedCall(200, function() {
+          player.clearTint();
+      });
+
+      if (hp <= 0) {
+        this.physics.pause(); // 暂停物理引擎
+        player.setTint(0xff0000);
+        gameOver = true;
+        this.add.text(300, 250, 'GAME OVER', { fontSize: '64px', fill: '#fff', backgroundColor: '#000' });
+        this.add.text(350, 320, 'Press F5 to Restart', { fontSize: '24px', fill: '#fff' });
       }
     }
 
-    // 生成赤红彗星的逻辑
-    function spawnComet(scene) {
-      // 如果还没有组，先创建组
-      if (!comets) {
-        comets = scene.physics.add.group();
-        scene.physics.add.collider(comets, platforms);
-        scene.physics.add.overlap(player, comets, collectComet, null, scene);
-      }
+    // --- 自动绘图工具 (无需手动找素材) ---
+    function createGraphics(scene) {
+      var g = scene.make.graphics({x:0, y:0, add:false});
 
-      // 在屏幕右上方生成
-      var comet = comets.create(Phaser.Math.Between(800, 1100), 50, "comet_texture");
-      comet.setBounce(0.95); // 极高弹性，疯狂乱跳
-      comet.setCollideWorldBounds(true);
-      
-      // 随机发射角度
-      var angle = Phaser.Math.Between(135, 225); // 向左下方发射
-      var speed = Phaser.Math.Between(300, 500); // 速度很快
-      var rad = Phaser.Math.DegToRad(angle);
-      comet.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
-      comet.setAngularVelocity(300); // 疯狂旋转
-      
-      // 粒子拖尾效果可以通过 Phaser 粒子系统添加，这里暂略
-    }
+      // 背景
+      g.fillStyle(0x000033, 1);
+      g.fillRect(0,0,32,32);
+      g.generateTexture('bg', 32, 32);
 
-    // 收集赤红彗星
-    function collectComet(player, comet) {
-      comet.disableBody(true, true);
-      // this.sound.play("powerup_sound");
-      
-      rareScore += 1;
-      score += 50; // 奖励大量分数
-      updateScore();
-    }
+      // 地面
+      g.clear();
+      g.fillStyle(0x444444, 1);
+      g.fillRect(0,0,32,32);
+      g.lineStyle(2, 0x00ff00, 1); // 绿色边框
+      g.strokeRect(0,0,32,32);
+      g.generateTexture('ground', 32, 32);
 
-    function updateScore() {
-      scoreText.setText('ENERGY: ' + score + '\nRARE MINERALS: ' + rareScore);
-    }
+      // 玩家 (白色方块)
+      g.clear();
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(0,0,30,30);
+      g.generateTexture('player', 30, 30);
 
-    // --- 辅助函数：绘制素材 (让代码能直接运行的核心) ---
-    function createAssets(scene) {
-      var graphics = scene.make.graphics({ x: 0, y: 0, add: false });
+      // 晶体 (黄色圆形)
+      g.clear();
+      g.fillStyle(0xffff00, 1);
+      g.fillCircle(10,10,10);
+      g.generateTexture('crystal', 20, 20);
 
-      // 1. 绘制背景纹理 (深蓝)
-      graphics.fillStyle(0x0a0a2a, 1); // 深蓝黑色
-      graphics.fillRect(0, 0, 32, 32);
-      graphics.generateTexture('bg_texture', 32, 32);
-
-      // 2. 绘制平台纹理 (灰色金属)
-      graphics.clear();
-      graphics.fillStyle(0x555577, 1);
-      graphics.lineStyle(2, 0x00ffff, 1); // 青色边框
-      graphics.fillRect(0, 0, 64, 32);
-      graphics.strokeRect(0, 0, 64, 32);
-      graphics.generateTexture('ground_texture', 64, 32);
-
-      // 3. 绘制晶体 (蓝色圆形)
-      graphics.clear();
-      graphics.fillStyle(0x00ffff, 1);
-      graphics.fillCircle(10, 10, 10);
-      graphics.generateTexture('crystal_texture', 20, 20);
-
-      // 4. 绘制赤红彗星 (红色不规则形)
-      graphics.clear();
-      graphics.fillStyle(0xff3300, 1);
-      graphics.fillCircle(12, 12, 12);
-      graphics.lineStyle(2, 0xffff00, 1);
-      graphics.strokeCircle(12, 12, 12);
-      graphics.generateTexture('comet_texture', 24, 24);
-
-      // 5. 绘制玩家 (白色方块 + 细节)
-      graphics.clear();
-      graphics.fillStyle(0xffffff, 1);
-      graphics.fillRect(0, 0, 32, 32); // 宇航服
-      graphics.fillStyle(0x333333, 1);
-      graphics.fillRect(8, 5, 20, 10); // 面罩
-      graphics.generateTexture('player_texture', 32, 32);
+      // 敌人 (红色带眼睛)
+      g.clear();
+      g.fillStyle(0xff0000, 1);
+      g.fillRect(0,0,32,32);
+      g.fillStyle(0x000000, 1);
+      g.fillRect(5, 5, 10, 5); // 左眼
+      g.fillRect(17, 5, 10, 5); // 右眼
+      g.generateTexture('enemy', 32, 32);
     }
   </script>
 </body>
