@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的第一个JS小游戏</title>
+  <script src="phaser.js"></script>
+</head>
+<body>
+  <script>
+    var player;
+    var cursors;
+    var platforms;
+    var coins;
+    var letterNum = 0;
+    var score = 0;
+    var scoreText;
+    var playerState = "standing";
+    
+    var config = {
+      type: Phaser.AUTO, // 渲染模式，建议选择Auto
+      width: 1208, // canvas（游戏窗口）的宽度
+      height: 668, // canvas（游戏窗口）的高度
+      physics: {
+        // 为游戏添加添加物理系统配置
+        default: "arcade", // “街机”物理引擎
+        arcade: {
+          gravity: {
+            // 重力参数
+            y: 300,
+          },
+          debug: false, // 关闭调试模式
+        },
+      },
+      scene: {
+        // 场景默认配置函数
+        preload: preload,
+        create: create,
+        update: update,
+      },
+    };
+    var game = new Phaser.Game(config);
+    function preload() {
+      // preload函数用于预加载游戏所需要的资源
+      // 游戏内所有的资源都需要先导入再使用
+      this.load.image("background", "res/background.jpg");
+      this.load.image("stand", "res/stand.png");
+      this.load.image("walk", "res/walk.png");
+      this.load.image("ground", "res/ground.png");
+      this.load.image("coin", "res/coin.png");
+      this.load.image("letter", "res/letter.png");
+      this.load.audio("eat", "res/eat.mp3");
+      this.load.audio("ji", "res/ji.mp3");
+      this.load.audio("jinitaimei", "res/jinitaimei.mp3");
+      this.load.audio("niganma", "res/niganma.mp3");
+    }
+    function create() {
+      // create函数用于为页面内添加资源，例如图片、音效等
+      this.add.image(604, 334, "background").setScale(4);
+
+      // 创建角色
+      // 把初始 Y 坐标稍微改高一点(500)，防止一开始卡在地里
+      player = this.physics.add.sprite(580, 500, "stand").setScale(0.1);
+
+      // 设置不可超出世界背景
+      player.setCollideWorldBounds(true);
+
+      // 键盘控制
+      cursors = this.input.keyboard.createCursorKeys(); // 根据按键控制游戏人物
+     
+      // 创建平台
+      platforms = this.physics.add.staticGroup();
+      platforms.create(200, 500, "ground").setScale(0.5).refreshBody();// refreshBody()是刷新物理体积元素
+      platforms.create(600, 400, "ground").setScale(0.5).refreshBody(); 
+      //  添加角色与平台的碰撞
+      this.physics.add.collider(player, platforms);
+
+      // 添加掉落收集物
+      coins = this.physics.add.group({
+        key: "coin", // 这里引用的 key 必须在 preload 里加载过
+        repeat: 6, // 重复几个
+        setXY: {
+          x: 12, // x坐标
+          y: 0, // y坐标
+          stepX: 130, // 金币之间的间隔
+        },
+      });
+      // 为每个子对象设置属性
+      coins.children.iterate(function (child) { // 通过遍历设置属性
+        // 设置随机反弹强度（0.4到0.9之间）
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.9));
+        // 设置大小（因为素材图片太大）
+        child.setScale(0.01);
+        // 设置金币不超出世界边界
+        child.setCollideWorldBounds(true);
+        // 添加一些随机角度的旋转效果
+        child.setAngularVelocity(Phaser.Math.Between(-100, 100));
+      });
+      // 设置金币与平台碰撞事件
+      this.physics.add.collider(coins, platforms);
+      // 设置吃金币事件
+      // 当 player 和 coins 重叠时，调用 collectCoin 函数
+      this.physics.add.overlap(player, coins, collectCoin, null, this);
+       // 显示分数
+      scoreText = this.add.text(16, 16, "Score: 0\n\nLetter: 0", { fontSize: '32px', fill: '#000' });
+    }
+    function update() {
+      // update函数会实时监听浏览器各种事件
+      // 这个函数里面的代码一直在运行
+
+      // 设置人物在x方向的速度为0
+      player.setVelocityX(0);
+      // 跳跃
+      // 注意：onFloor() 只有在角色真的碰到世界边界或地板物体时才为 true
+      if (cursors.up.isDown && player.body.onFloor()) {
+        player.setVelocityY(-350);
+        playerState = "jumping";
+      }
+      // 站立状态
+      if (playerState !== "jumping" && player.body.velocity.x === 0 && player.body.touching.down) {
+        playerState = "standing";
+        player.setTexture("stand");
+      }
+      // 左右移动
+      if (cursors.left.isDown) {
+        player.setVelocityX(-250);
+        player.setFlipX(true); // 翻转角色朝向
+        if (playerState !== "jumping") {
+          playerState = "walking";
+          player.setTexture("walk");// 设置 player 显示的图像为 walk
+        }
+      } else if (cursors.right.isDown) {
+        player.setVelocityX(250);
+        player.setFlipX(false); // 恢复默认朝向
+        if (playerState !== "jumping") {
+          playerState = "walking";
+          player.setTexture("walk");
+        }
+      }
+      // 检测是否落地
+      if (playerState == "jumping" && player.body.onFloor()) { // 判断玩家是否接触了物理地面
+        playerState = "standing";
+        player.setTexture("stand");
+      }
+    }
+   
+    // 处理金币与 player 重叠时的事件函数
+    function collectCoin(player, coin) {
+      coin.disableBody(true, true); // 销毁当前金币对象（因为已经被player“吃掉了”）
+      
+      // 分数+1
+      score += 1;
+      scoreText.setText('Score: ' + score + "\n\n" + "Letter:" + letterNum);
+      
+      // 播放音效
+      this.sound.play("ji", {
+        volume: 1,
+        rate: 1,
+      });
+      
+      // 如果所有金币被吃完就生成新的金币
+      if (coins.countActive(true) === 0) {
+        // 播放音效
+        this.sound.play("jinitaimei", {
+          volume: 1,
+          rate: 1,
+        });
+        // 使得每个金币元素重新激活
+        coins.children.iterate(function (child) {
+          // 让金币重新在上方出现
+          child.enableBody(true, child.x, 0, true, true);
+        });
+      }
+
+      // 生成炸弹：条件是每吃5个金币，就生成一个炸弹
+      if (score != 0 && score % 5 == 0) {
+        letter = this.physics.add.group({
+          key: "letter",
+          repeat: 0,
+          setXY: {
+            x: 1000,
+            y: 100,
+            stepX: 130,
+          },
+        }); 
+        letter.children.iterate(function (child) { 
+          // 设置大小
+          child.setScale(0.1);
+          // 设置与世界边界碰撞
+          child.setCollideWorldBounds(true);
+          // 弹性碰撞
+          child.setBounce(0.95); //
+          // 计算向左下角发射的随机角度（180°到270°之间）
+          const angle = Phaser.Math.Between(180, 270);
+          // 随机速度
+          const speed = Phaser.Math.Between(150, 250);
+          // 将角度和速度转换为x和y速度分量
+          const rad = Phaser.Math.DegToRad(angle);
+          child.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
+          // 添加一些随机旋转效果
+          child.setAngularVelocity(Phaser.Math.Between(-100, 100));
+        });
+        // 设置与平台碰撞
+        this.physics.add.collider(letter, platforms);
+        // 设置与玩家碰撞
+        this.physics.add.overlap(player, letter, collectLetter, null, this);
+      }
+    }  
+
+    // 收集到炸弹的代码
+    function collectLetter(player, letter) {
+      // 播放音效
+      this.sound.play("niganma", {
+        volume: 1,
+        rate: 1,
+      });
+      // 使得自身消失
+      letter.disableBody(true, true);
+      // 收集炸弹时letter（炸弹）数量+1
+      letterNum += 1;
+
+      scoreText.setText("Score: " + score + "\n\nLetter: " + letterNum);
+    }
+  </script>
+</body>
+</html>
