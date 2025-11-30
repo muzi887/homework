@@ -3,223 +3,235 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>我的第一个JS小游戏</title>
+  <title>星际矿工：晶体冲刺</title>
   <script src="phaser.js"></script>
+  <style>
+    body { margin: 0; padding: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  </style>
 </head>
 <body>
   <script>
+    // --- 变量重命名 ---
     var player;
     var cursors;
     var platforms;
-    var coins;
-    var letterNum = 0;
+    var crystals; // 原 coins
+    var comets;   // 原 letter (赤红彗星)
+    
+    var rareScore = 0; // 原 letterNum
     var score = 0;
     var scoreText;
     var playerState = "standing";
-    
+
     var config = {
-      type: Phaser.AUTO, // 渲染模式，建议选择Auto
-      width: 1208, // canvas（游戏窗口）的宽度
-      height: 668, // canvas（游戏窗口）的高度
+      type: Phaser.AUTO,
+      width: 1208,
+      height: 668,
       physics: {
-        // 为游戏添加添加物理系统配置
-        default: "arcade", // “街机”物理引擎
+        default: "arcade",
         arcade: {
-          gravity: {
-            // 重力参数
-            y: 300,
-          },
-          debug: false, // 关闭调试模式
+          gravity: { y: 300 }, // 模拟月球/太空低重力
+          debug: false,
         },
       },
       scene: {
-        // 场景默认配置函数
         preload: preload,
         create: create,
         update: update,
       },
     };
+
     var game = new Phaser.Game(config);
+
     function preload() {
-      // preload函数用于预加载游戏所需要的资源
-      // 游戏内所有的资源都需要先导入再使用
-      this.load.image("background", "res/background.jpg");
-      this.load.image("stand", "res/stand.png");
-      this.load.image("walk", "res/walk.png");
-      this.load.image("ground", "res/ground.png");
-      this.load.image("coin", "res/coin.png");
-      this.load.image("letter", "res/letter.png");
-      this.load.audio("eat", "res/eat.mp3");
-      this.load.audio("ji", "res/ji.mp3");
-      this.load.audio("jinitaimei", "res/jinitaimei.mp3");
-      this.load.audio("niganma", "res/niganma.mp3");
+      // --- 资源加载区 ---
+      // 如果你有真正的图片，请在这里用 this.load.image() 加载
+      // 为了方便演示，我在 create 函数里直接画出了图形
+      
+      // 音效加载（如果你有科幻音效，请取消注释并替换文件名）
+      // this.load.audio("collect_sound", "res/collect.mp3");
+      // this.load.audio("jump_sound", "res/jump.mp3");
+      // this.load.audio("respawn_sound", "res/respawn.mp3");
+      // this.load.audio("powerup_sound", "res/powerup.mp3");
     }
+
     function create() {
-      // create函数用于为页面内添加资源，例如图片、音效等
-      this.add.image(604, 334, "background").setScale(4);
+      // --- 1. 自动生成素材 (代替原来的图片) ---
+      createAssets(this); 
 
-      // 创建角色
-      // 把初始 Y 坐标稍微改高一点(500)，防止一开始卡在地里
-      player = this.physics.add.sprite(580, 500, "stand").setScale(0.1);
+      // --- 2. 创建背景 ---
+      // 使用深邃的太空蓝
+      this.add.image(604, 334, "bg_texture").setScale(4);
 
-      // 设置不可超出世界背景
+      // --- 3. 创建平台 ---
+      platforms = this.physics.add.staticGroup();
+      // 地面
+      platforms.create(604, 660, "ground_texture").setScale(20, 2).refreshBody();
+      // 空中平台 (模拟空间站浮板)
+      platforms.create(200, 500, "ground_texture").setScale(3, 1).refreshBody();
+      platforms.create(900, 450, "ground_texture").setScale(3, 1).refreshBody();
+      platforms.create(500, 300, "ground_texture").setScale(2, 1).refreshBody();
+
+      // --- 4. 创建宇航员 (Player) ---
+      player = this.physics.add.sprite(100, 450, "player_texture");
+      player.setBounce(0.2); // 稍微有点弹性
       player.setCollideWorldBounds(true);
 
-      // 键盘控制
-      cursors = this.input.keyboard.createCursorKeys(); // 根据按键控制游戏人物
-     
-      // 创建平台
-      platforms = this.physics.add.staticGroup();
-      platforms.create(200, 500, "ground").setScale(0.5).refreshBody();// refreshBody()是刷新物理体积元素
-      platforms.create(600, 400, "ground").setScale(0.5).refreshBody(); 
-      //  添加角色与平台的碰撞
-      this.physics.add.collider(player, platforms);
+      // --- 5. 键盘控制 ---
+      cursors = this.input.keyboard.createCursorKeys();
 
-      // 添加掉落收集物
-      coins = this.physics.add.group({
-        key: "coin", // 这里引用的 key 必须在 preload 里加载过
-        repeat: 6, // 重复几个
-        setXY: {
-          x: 12, // x坐标
-          y: 0, // y坐标
-          stepX: 130, // 金币之间的间隔
-        },
+      // --- 6. 添加蓝色能量晶体 (原 Coins) ---
+      crystals = this.physics.add.group({
+        key: "crystal_texture",
+        repeat: 9, // 数量增加到10个
+        setXY: { x: 12, y: 0, stepX: 120 },
       });
-      // 为每个子对象设置属性
-      coins.children.iterate(function (child) { // 通过遍历设置属性
-        // 设置随机反弹强度（0.4到0.9之间）
-        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.9));
-        // 设置大小（因为素材图片太大）
-        child.setScale(0.01);
-        // 设置金币不超出世界边界
+
+      crystals.children.iterate(function (child) {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
         child.setCollideWorldBounds(true);
-        // 添加一些随机角度的旋转效果
-        child.setAngularVelocity(Phaser.Math.Between(-100, 100));
+        // 给晶体加一点旋转动画，看起来像在漂浮
+        child.setAngularVelocity(50);
       });
-      // 设置金币与平台碰撞事件
-      this.physics.add.collider(coins, platforms);
-      // 设置吃金币事件
-      // 当 player 和 coins 重叠时，调用 collectCoin 函数
-      this.physics.add.overlap(player, coins, collectCoin, null, this);
-       // 显示分数
-      scoreText = this.add.text(16, 16, "Score: 0\n\nLetter: 0", { fontSize: '32px', fill: '#000' });
+
+      // --- 7. 碰撞设置 ---
+      this.physics.add.collider(player, platforms);
+      this.physics.add.collider(crystals, platforms);
+      this.physics.add.overlap(player, crystals, collectCrystal, null, this);
+
+      // --- 8. UI 显示 ---
+      // 使用科幻风格的青色文字
+      scoreText = this.add.text(16, 16, 'ENERGY: 0\nRARE MINERALS: 0', { 
+        fontSize: '28px', 
+        fill: '#00ffff', // 青色荧光
+        fontFamily: 'Arial' 
+      });
     }
+
     function update() {
-      // update函数会实时监听浏览器各种事件
-      // 这个函数里面的代码一直在运行
-
-      // 设置人物在x方向的速度为0
-      player.setVelocityX(0);
-      // 跳跃
-      // 注意：onFloor() 只有在角色真的碰到世界边界或地板物体时才为 true
-      if (cursors.up.isDown && player.body.onFloor()) {
-        player.setVelocityY(-350);
-        playerState = "jumping";
-      }
-      // 站立状态
-      if (playerState !== "jumping" && player.body.velocity.x === 0 && player.body.touching.down) {
-        playerState = "standing";
-        player.setTexture("stand");
-      }
-      // 左右移动
+      // 左右移动逻辑
       if (cursors.left.isDown) {
-        player.setVelocityX(-250);
-        player.setFlipX(true); // 翻转角色朝向
-        if (playerState !== "jumping") {
-          playerState = "walking";
-          player.setTexture("walk");// 设置 player 显示的图像为 walk
-        }
+        player.setVelocityX(-260);
+        player.setFlipX(true); // 向左转
       } else if (cursors.right.isDown) {
-        player.setVelocityX(250);
-        player.setFlipX(false); // 恢复默认朝向
-        if (playerState !== "jumping") {
-          playerState = "walking";
-          player.setTexture("walk");
-        }
+        player.setVelocityX(260);
+        player.setFlipX(false); // 向右转
+      } else {
+        player.setVelocityX(0);
       }
-      // 检测是否落地
-      if (playerState == "jumping" && player.body.onFloor()) { // 判断玩家是否接触了物理地面
-        playerState = "standing";
-        player.setTexture("stand");
+
+      // 跳跃逻辑 (喷气背包)
+      if (cursors.up.isDown && player.body.touching.down) {
+        player.setVelocityY(-380); // 跳得更高一点
+        // 这里可以加播放跳跃音效的代码
       }
     }
-   
-    // 处理金币与 player 重叠时的事件函数
-    function collectCoin(player, coin) {
-      coin.disableBody(true, true); // 销毁当前金币对象（因为已经被player“吃掉了”）
+
+    // --- 交互函数 ---
+
+    // 收集蓝色晶体
+    function collectCrystal(player, crystal) {
+      crystal.disableBody(true, true);
       
-      // 分数+1
-      score += 1;
-      scoreText.setText('Score: ' + score + "\n\n" + "Letter:" + letterNum);
-      
-      // 播放音效
-      this.sound.play("ji", {
-        volume: 1,
-        rate: 1,
-      });
-      
-      // 如果所有金币被吃完就生成新的金币
-      if (coins.countActive(true) === 0) {
-        // 播放音效
-        this.sound.play("jinitaimei", {
-          volume: 1,
-          rate: 1,
-        });
-        // 使得每个金币元素重新激活
-        coins.children.iterate(function (child) {
-          // 让金币重新在上方出现
+      // 播放音效 (模拟)
+      // this.sound.play("collect_sound");
+
+      score += 10; // 分数膨胀一点更爽
+      updateScore();
+
+      // 刷新机制
+      if (crystals.countActive(true) === 0) {
+        // this.sound.play("respawn_sound");
+        crystals.children.iterate(function (child) {
           child.enableBody(true, child.x, 0, true, true);
+          // 每次刷新给个随机速度，增加难度
+          child.setVelocityX(Phaser.Math.Between(-50, 50));
         });
       }
 
-      // 生成炸弹：条件是每吃5个金币，就生成一个炸弹
-      if (score != 0 && score % 5 == 0) {
-        letter = this.physics.add.group({
-          key: "letter",
-          repeat: 0,
-          setXY: {
-            x: 1000,
-            y: 100,
-            stepX: 130,
-          },
-        }); 
-        letter.children.iterate(function (child) { 
-          // 设置大小
-          child.setScale(0.1);
-          // 设置与世界边界碰撞
-          child.setCollideWorldBounds(true);
-          // 弹性碰撞
-          child.setBounce(0.95); //
-          // 计算向左下角发射的随机角度（180°到270°之间）
-          const angle = Phaser.Math.Between(180, 270);
-          // 随机速度
-          const speed = Phaser.Math.Between(150, 250);
-          // 将角度和速度转换为x和y速度分量
-          const rad = Phaser.Math.DegToRad(angle);
-          child.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
-          // 添加一些随机旋转效果
-          child.setAngularVelocity(Phaser.Math.Between(-100, 100));
-        });
-        // 设置与平台碰撞
-        this.physics.add.collider(letter, platforms);
-        // 设置与玩家碰撞
-        this.physics.add.overlap(player, letter, collectLetter, null, this);
+      // 生成赤红彗星 (原 Letter 炸弹)
+      // 设定：每收集 50 分 (5个晶体) 生成一个
+      if (score > 0 && score % 50 === 0) {
+        spawnComet(this);
       }
-    }  
+    }
 
-    // 收集到炸弹的代码
-    function collectLetter(player, letter) {
-      // 播放音效
-      this.sound.play("niganma", {
-        volume: 1,
-        rate: 1,
-      });
-      // 使得自身消失
-      letter.disableBody(true, true);
-      // 收集炸弹时letter（炸弹）数量+1
-      letterNum += 1;
+    // 生成赤红彗星的逻辑
+    function spawnComet(scene) {
+      // 如果还没有组，先创建组
+      if (!comets) {
+        comets = scene.physics.add.group();
+        scene.physics.add.collider(comets, platforms);
+        scene.physics.add.overlap(player, comets, collectComet, null, scene);
+      }
 
-      scoreText.setText("Score: " + score + "\n\nLetter: " + letterNum);
+      // 在屏幕右上方生成
+      var comet = comets.create(Phaser.Math.Between(800, 1100), 50, "comet_texture");
+      comet.setBounce(0.95); // 极高弹性，疯狂乱跳
+      comet.setCollideWorldBounds(true);
+      
+      // 随机发射角度
+      var angle = Phaser.Math.Between(135, 225); // 向左下方发射
+      var speed = Phaser.Math.Between(300, 500); // 速度很快
+      var rad = Phaser.Math.DegToRad(angle);
+      comet.setVelocity(Math.cos(rad) * speed, Math.sin(rad) * speed);
+      comet.setAngularVelocity(300); // 疯狂旋转
+      
+      // 粒子拖尾效果可以通过 Phaser 粒子系统添加，这里暂略
+    }
+
+    // 收集赤红彗星
+    function collectComet(player, comet) {
+      comet.disableBody(true, true);
+      // this.sound.play("powerup_sound");
+      
+      rareScore += 1;
+      score += 50; // 奖励大量分数
+      updateScore();
+    }
+
+    function updateScore() {
+      scoreText.setText('ENERGY: ' + score + '\nRARE MINERALS: ' + rareScore);
+    }
+
+    // --- 辅助函数：绘制素材 (让代码能直接运行的核心) ---
+    function createAssets(scene) {
+      var graphics = scene.make.graphics({ x: 0, y: 0, add: false });
+
+      // 1. 绘制背景纹理 (深蓝)
+      graphics.fillStyle(0x0a0a2a, 1); // 深蓝黑色
+      graphics.fillRect(0, 0, 32, 32);
+      graphics.generateTexture('bg_texture', 32, 32);
+
+      // 2. 绘制平台纹理 (灰色金属)
+      graphics.clear();
+      graphics.fillStyle(0x555577, 1);
+      graphics.lineStyle(2, 0x00ffff, 1); // 青色边框
+      graphics.fillRect(0, 0, 64, 32);
+      graphics.strokeRect(0, 0, 64, 32);
+      graphics.generateTexture('ground_texture', 64, 32);
+
+      // 3. 绘制晶体 (蓝色圆形)
+      graphics.clear();
+      graphics.fillStyle(0x00ffff, 1);
+      graphics.fillCircle(10, 10, 10);
+      graphics.generateTexture('crystal_texture', 20, 20);
+
+      // 4. 绘制赤红彗星 (红色不规则形)
+      graphics.clear();
+      graphics.fillStyle(0xff3300, 1);
+      graphics.fillCircle(12, 12, 12);
+      graphics.lineStyle(2, 0xffff00, 1);
+      graphics.strokeCircle(12, 12, 12);
+      graphics.generateTexture('comet_texture', 24, 24);
+
+      // 5. 绘制玩家 (白色方块 + 细节)
+      graphics.clear();
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillRect(0, 0, 32, 32); // 宇航服
+      graphics.fillStyle(0x333333, 1);
+      graphics.fillRect(8, 5, 20, 10); // 面罩
+      graphics.generateTexture('player_texture', 32, 32);
     }
   </script>
 </body>
